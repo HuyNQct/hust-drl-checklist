@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import type { FormEvent } from 'react';
 import {
   CheckCircle2,
   Plus,
@@ -9,7 +10,6 @@ import {
   Layers,
   ListChecks,
   Compass,
-  Info,
   Search,
   Lock,
   Unlock,
@@ -17,14 +17,10 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
-  ArrowUpRight,
   ShieldCheck,
-  Flame,
   CalendarClock,
   CheckSquare,
-  Square,
-  HelpCircle,
-  Filter
+  Square
 } from 'lucide-react';
 
 // ============================================================================
@@ -597,11 +593,63 @@ const HUST_DRL_DATA = [
   }
 ];
 
+type Section = (typeof HUST_DRL_DATA)[number];
+type SubSection = Section['subSections'][number];
+type Criterion = SubSection['criteria'][number];
+type EnrichedCriterion = Criterion & {
+  subSectionId: string;
+  subSectionTitle: string;
+  subSectionMax: number;
+  sectionId: string;
+  sectionCode: string;
+  sectionMax: number;
+};
+type ActivityStatus = 'done' | 'planned';
+type Activity = {
+  id: string;
+  name: string;
+  criteria: string[];
+  status: ActivityStatus;
+  forcedCriterion: string | null;
+};
+type ScoreBreakdown = {
+  raw: number;
+  capped: number;
+  max: number;
+  isCapped: boolean;
+  overflow: number;
+  remaining: number;
+};
+type CriterionSource =
+  | { type: 'manual'; label: string }
+  | {
+      type: 'activity';
+      activityId: string;
+      activityName: string;
+      activityStatus: ActivityStatus;
+      effectiveGain: number;
+    };
+type ActivityAnalysis = {
+  assignedCriterion: string | null;
+  effectiveGain: number;
+  isRedundant: boolean;
+  reasonType?: 'empty' | 'surplus';
+  reason: string;
+};
+type RecommendedCriterion = Criterion & {
+  subSectionId: string;
+  subSectionTitle: string;
+  subRemaining: number;
+  subIsCapped: boolean;
+  effectiveGain: number;
+  wastedPoints: number;
+};
+
 // Xây dựng bảng tra cứu nhanh (Maps) cho các tiêu chí
-const CRITERIA_MAP = {};
-const SUBSECTION_MAP = {};
-const SECTION_MAP = {};
-const ALL_CRITERIA_LIST = [];
+const CRITERIA_MAP: Record<string, EnrichedCriterion> = {};
+const SUBSECTION_MAP: Record<string, SubSection & { sectionId: string; sectionMax: number }> = {};
+const SECTION_MAP: Record<string, Section> = {};
+const ALL_CRITERIA_LIST: EnrichedCriterion[] = [];
 
 HUST_DRL_DATA.forEach((sec) => {
   SECTION_MAP[sec.id] = sec;
@@ -637,7 +685,7 @@ const SAMPLE_MANUAL_CRITERIA = [
   '3.2.1'
 ];
 
-const SAMPLE_ACTIVITIES = [
+const SAMPLE_ACTIVITIES: Activity[] = [
   {
     id: 'act-1',
     name: 'Hội thảo Trí tuệ nhân tạo & Chuyển đổi số SoICT',
@@ -706,12 +754,12 @@ const SAMPLE_ACTIVITIES = [
 // ============================================================================
 // 3. THUẬT TOÁN TÍNH ĐIỂM CÓ TRẦN ĐỀ MỤC & TRẦN PHẦN (TC1..TC5)
 // ============================================================================
-function evaluateCriteriaSet(achievedSet) {
+function evaluateCriteriaSet(achievedSet: ReadonlySet<string>) {
   let totalScore = 0;
   let totalSubCapped = 0;
   let totalRaw = 0;
-  const sectionBreakdown = {};
-  const subSectionBreakdown = {};
+  const sectionBreakdown: Record<string, ScoreBreakdown & { subCappedSum: number }> = {};
+  const subSectionBreakdown: Record<string, ScoreBreakdown> = {};
 
   for (const sec of HUST_DRL_DATA) {
     let secSumFromSubs = 0;
@@ -769,7 +817,7 @@ function evaluateCriteriaSet(achievedSet) {
 // 2. Tổng điểm đề mục (Sub-section capped sum) lớn nhất.
 // 3. Sử dụng ít hoạt động dư thừa nhất (chỉ gán hoạt động khi thực sự mở khóa tiêu chí có ích).
 // ============================================================================
-function solveOptimalAssignment(manualCriteriaList, activitiesList, includePlanned = true) {
+function solveOptimalAssignment(manualCriteriaList: string[], activitiesList: Activity[], includePlanned = true) {
   const baseSet = new Set(manualCriteriaList);
   const activeActivities = activitiesList.filter(
     (a) => a.status === 'done' || (includePlanned && a.status === 'planned')
@@ -801,13 +849,13 @@ function solveOptimalAssignment(manualCriteriaList, activitiesList, includePlann
   let bestTotalScore = -1;
   let bestSubCappedScore = -1;
   let bestUsedCount = Infinity;
-  let bestAssignment = new Array(n).fill(null);
+  let bestAssignment = new Array<string | null>(n).fill(null);
 
   const currentSet = new Set(baseSet);
-  const currentAssignment = new Array(n).fill(null);
-  const visitedStates = new Map();
+  const currentAssignment = new Array<string | null>(n).fill(null);
+  const visitedStates = new Map<string, number>();
 
-  function dfs(idx, usedCount) {
+  function dfs(idx: number, usedCount: number) {
     if (idx === n) {
       const evalRes = evaluateCriteriaSet(currentSet);
       const isBetter =
@@ -843,11 +891,9 @@ function solveOptimalAssignment(manualCriteriaList, activitiesList, includePlann
     visitedStates.set(stateKey, usedCount);
 
     const options = choicesPerActivity[idx];
-    let triedAnyNew = false;
 
     for (const cid of options) {
       if (!currentSet.has(cid)) {
-        triedAnyNew = true;
         currentSet.add(cid);
         currentAssignment[idx] = cid;
         dfs(idx + 1, usedCount + 1);
@@ -865,7 +911,7 @@ function solveOptimalAssignment(manualCriteriaList, activitiesList, includePlann
   // Sau khi tìm được cách gán tối ưu đạt bestTotalScore:
   // Kiểm tra từng hoạt động được gán xem tiêu chí của nó thực sự đóng góp bao nhiêu điểm vào TotalScore
   const finalCriteriaSet = new Set(baseSet);
-  const criterionSourceMap = {}; // critId -> { type: 'manual' | 'activity', activityId, activityName, status }
+  const criterionSourceMap: Record<string, CriterionSource> = {}; // critId -> { type: 'manual' | 'activity', activityId, activityName, status }
 
   baseSet.forEach((cid) => {
     criterionSourceMap[cid] = {
@@ -898,7 +944,7 @@ function solveOptimalAssignment(manualCriteriaList, activitiesList, includePlann
   }
 
   // Ghi nhận nguồn mở khóa cho các tiêu chí thực sự đóng góp vào tổng điểm
-  const activityAnalysis = {};
+  const activityAnalysis: Record<string, ActivityAnalysis> = {};
   activeActivities.forEach((act, idx) => {
     const assignedCid = cleanedAssignment[idx];
     if (assignedCid) {
@@ -928,7 +974,7 @@ function solveOptimalAssignment(manualCriteriaList, activitiesList, includePlann
   const finalEvaluation = evaluateCriteriaSet(finalCriteriaSet);
 
   // Phân tích chi tiết lý do vì sao các hoạt động còn lại bị dư thừa (Redundant)
-  activeActivities.forEach((act, idx) => {
+  activeActivities.forEach((act) => {
     if (activityAnalysis[act.id]) return;
 
     const validCrit = act.criteria.filter((c) => CRITERIA_MAP[c]);
@@ -985,7 +1031,7 @@ function solveOptimalAssignment(manualCriteriaList, activitiesList, includePlann
 // ============================================================================
 export default function App() {
   // State lưu trữ trong LocalStorage
-  const [manualCriteria, setManualCriteria] = useState(() => {
+  const [manualCriteria, setManualCriteria] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('hust_drl_manual_v1');
       return saved ? JSON.parse(saved) : SAMPLE_MANUAL_CRITERIA;
@@ -994,7 +1040,7 @@ export default function App() {
     }
   });
 
-  const [activities, setActivities] = useState(() => {
+  const [activities, setActivities] = useState<Activity[]>(() => {
     try {
       const saved = localStorage.getItem('hust_drl_activities_v1');
       return saved ? JSON.parse(saved) : SAMPLE_ACTIVITIES;
@@ -1008,15 +1054,15 @@ export default function App() {
 
   // State cho Form thêm hoạt động mới
   const [newActName, setNewActName] = useState('');
-  const [newActCriteria, setNewActCriteria] = useState([]);
-  const [newActStatus, setNewActStatus] = useState('done');
+  const [newActCriteria, setNewActCriteria] = useState<string[]>([]);
+  const [newActStatus, setNewActStatus] = useState<ActivityStatus>('done');
   const [criteriaSearch, setCriteriaSearch] = useState('');
   const [selectedSectionFilter, setSelectedSectionFilter] = useState('ALL');
 
   // State cho bộ lọc trong tab Checklist
   const [checklistSearch, setChecklistSearch] = useState('');
   const [checklistFilter, setChecklistFilter] = useState('all'); // 'all' | 'achieved' | 'unachieved' | 'effective_open'
-  const [collapsedSections, setCollapsedSections] = useState({});
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     try {
@@ -1047,7 +1093,7 @@ export default function App() {
   const { evaluation, achievedSet, criterionSourceMap, activityAnalysis } = optimalResult;
 
   // Xếp loại rèn luyện theo thang điểm 100
-  const getClassification = (score) => {
+  const getClassification = (score: number) => {
     if (score >= 90)
       return { label: 'Xuất sắc', color: 'bg-emerald-500 text-white', text: 'text-emerald-600' };
     if (score >= 80)
@@ -1062,17 +1108,17 @@ export default function App() {
   const classification = getClassification(evaluation.totalScore);
 
   // Các hàm thao tác dữ liệu
-  const toggleManualCriterion = (critId) => {
+  const toggleManualCriterion = (critId: string) => {
     setManualCriteria((prev) =>
       prev.includes(critId) ? prev.filter((id) => id !== critId) : [...prev, critId]
     );
   };
 
-  const handleAddActivity = (e) => {
+  const handleAddActivity = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!newActName.trim() || newActCriteria.length === 0) return;
 
-    const newAct = {
+    const newAct: Activity = {
       id: 'act-' + Date.now(),
       name: newActName.trim(),
       criteria: [...newActCriteria].sort(),
@@ -1085,17 +1131,17 @@ export default function App() {
     setNewActCriteria([]);
   };
 
-  const toggleNewActCriterion = (critId) => {
+  const toggleNewActCriterion = (critId: string) => {
     setNewActCriteria((prev) =>
       prev.includes(critId) ? prev.filter((c) => c !== critId) : [...prev, critId]
     );
   };
 
-  const removeActivity = (actId) => {
+  const removeActivity = (actId: string) => {
     setActivities((prev) => prev.filter((a) => a.id !== actId));
   };
 
-  const toggleActivityStatus = (actId) => {
+  const toggleActivityStatus = (actId: string) => {
     setActivities((prev) =>
       prev.map((a) =>
         a.id === actId ? { ...a, status: a.status === 'done' ? 'planned' : 'done' } : a
@@ -1103,7 +1149,7 @@ export default function App() {
     );
   };
 
-  const setForcedCriterion = (actId, critIdOrNull) => {
+  const setForcedCriterion = (actId: string, critIdOrNull: string | null) => {
     setActivities((prev) =>
       prev.map((a) => (a.id === actId ? { ...a, forcedCriterion: critIdOrNull } : a))
     );
@@ -1131,7 +1177,7 @@ export default function App() {
       const missingInSec = secBreak.remaining;
 
       // Tìm các tiêu chí chưa đạt trong phần này và số điểm thực tế tăng thêm nếu đạt được nó
-      const candidateCriteria = [];
+      const candidateCriteria: RecommendedCriterion[] = [];
       sec.subSections.forEach((sub) => {
         const subBreak = evaluation.subSectionBreakdown[sub.id];
         const roomInSub = Math.min(missingInSec, subBreak.remaining);
