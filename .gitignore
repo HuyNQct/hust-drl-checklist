@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+/.pnp
+.pnp.js
+
+# Production build outputs
+dist
+dist-ssr
+*.local
+
+# JetBrains IDE configs
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# VS Code configs (nếu có dùng kèm)
+.vscode/*
+!.vscode/extensions.json
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
