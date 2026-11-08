@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-    CalendarDays,
     Plus,
     Trash2,
     ChevronLeft,

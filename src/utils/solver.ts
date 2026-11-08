@@ -203,7 +203,7 @@ export function solveOptimalAssignment(manualCriteriaList: string[], activitiesL
 
     const finalEvaluation = evaluateCriteriaSet(finalCriteriaSet);
 
-    activeActivities.forEach((act, idx) => {
+    activeActivities.forEach((act) => {
         if (activityAnalysis[act.id]) return;
 
         const validCrit = act.criteria.filter((c: string) => CRITERIA_MAP[c]);
