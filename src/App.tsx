@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Award, Layers, ListChecks, Compass, CalendarDays,
   Zap, Sparkles, RotateCcw, CheckCircle2, AlertTriangle

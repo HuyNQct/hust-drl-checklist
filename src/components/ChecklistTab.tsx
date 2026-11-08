@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Search, ChevronDown, ChevronUp, CheckCircle2, Sparkles } from 'lucide-react';
 import { HUST_DRL_DATA } from '../data/hustData'; // Import data chung
 

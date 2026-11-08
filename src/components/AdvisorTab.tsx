@@ -1,4 +1,3 @@
-import React from 'react';
 import { ShieldCheck } from 'lucide-react';
 
 // Định nghĩa Props nhận từ component cha (App.tsx)
